@@ -1,6 +1,6 @@
-gdpdata<-read.csv("C:/Users/chung/Downloads/economy-and-growth-raw-2021.csv")
-countrydata<-read.csv("C:/Users/chung/Downloads/countrymetadata.csv")
-incomedata<-read.csv("C:/Users/chung/Downloads/income.csv")
+gdpdata<-read.csv("economy-and-growth-raw-2021.csv")
+countrydata<-read.csv("countrymetadata.csv")
+incomedata<-read.csv("income.csv")
 library(tidyverse)
 
 ## econ data
