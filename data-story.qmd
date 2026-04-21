@@ -1,0 +1,589 @@
+---
+format: 
+  closeread-html:
+    css: styles.css
+    backgroundcolor: "#f7f7f5"
+    cr-section:
+      layout: "sidebar-left"
+    cr-style:
+      section-background-color: "#f7f7f5"
+      section-text-color: "#1a1a1a"
+      narrative-background-color-overlay: "rgba(255, 255, 255, 0.94)"
+      narrative-text-color-overlay: "#1a1a1a"
+      narrative-overlay-min-width: "340px"
+      narrative-overlay-max-width: "560px"
+      narrative-outer-margin: "1.5rem"
+      narrative-inner-margin: "2.25rem"
+      narrative-font-family: 'Georgia, "Times New Roman", Times, serif'
+      narrative-font-size: 1.15rem
+      narrative-line-height: 1.75
+      poem-font-family: 'Georgia, "Times New Roman", Times, serif'
+      
+execute:
+  echo: false
+  warning: false
+  message: false
+
+---
+
+```{r}
+# Load dependencies
+library(tidyverse)
+library(plotly)
+
+# Read in data
+econ_data <- read.csv("dsproject3data.csv")
+
+# Format data (same as shiny dashboard)
+sector_data <- econ_data |>
+  filter(Indicator.Code %in% c(
+    "NV.AGR.TOTL.ZS",
+    "NV.IND.TOTL.ZS",
+    "NV.SRV.TOTL.ZS",
+    "NE.TRD.GNFS.ZS",
+    "NY.GDP.PCAP.CD"
+  )) |>
+  mutate(
+    sector = case_when(
+      Indicator.Code == "NV.AGR.TOTL.ZS" ~ "Agriculture",
+      Indicator.Code == "NV.IND.TOTL.ZS" ~ "Industry",
+      Indicator.Code == "NV.SRV.TOTL.ZS" ~ "Service",
+      Indicator.Code == "NE.TRD.GNFS.ZS" ~ "Trade",
+      Indicator.Code == "NY.GDP.PCAP.CD" ~ "GDP"
+    )
+  ) |>
+  select(Country.Name, Year, Region, incomeclass, sector, Indicator.Value) |>
+  pivot_wider(names_from = sector, values_from = Indicator.Value) |>
+  arrange(Country.Name, Year)
+
+global_avg <- sector_data |> 
+  group_by(Year) |> 
+  summarize(
+    Agriculture = weighted.mean(Agriculture, w = GDP),
+    Industry = weighted.mean(Industry, w = GDP),
+    Service = weighted.mean(Service, w = GDP),
+    Trade = weighted.mean(Trade, w = GDP)
+  ) |> 
+  mutate(Country.Name = "Global Average")
+
+plot_theme <- function(p, title_text = NULL) {
+  p |>
+    layout(
+      title = list(
+        text = title_text,
+        x = 0,
+        xanchor = "left",
+        font = list(family = "Georgia, serif", size = 24)
+      ),
+      paper_bgcolor = "#f7f7f5",
+      plot_bgcolor = "#f7f7f5",
+      font = list(
+        family = "Georgia, Times New Roman, serif",
+        color = "#1a1a1a",
+        size = 15
+      ),
+      legend = list(
+        orientation = "v",
+        x = 1.02,
+        y = 1,
+        xanchor = "left",
+        yanchor = "top"
+      ),
+      margin = list(l = 70, r = 30, t = 90, b = 60)
+    )
+}
+
+sector_colors <- c(
+  "Service" = "rgba(55, 118, 171, 0.85)",
+  "Industry" = "rgba(255, 127, 14, 0.85)",
+  "Agriculture" = "rgba(34, 139, 34, 0.85)"
+)
+
+sector_line_colors <- c(
+  "Service" = "rgba(55, 118, 171, 1)",
+  "Industry" = "rgba(255, 127, 14, 1)",
+  "Agriculture" = "rgba(34, 139, 34, 1)"
+)
+```
+
+:::{.cover-page}
+# Services Are Everywhere.<br>How Did We Get Here?
+
+## The path from farms to factories to services
+
+By: Kira Chung and Evie McMahan<br>
+April 20th, 2026
+:::
+
+:::{.data-note}
+For the best viewing experience, use fullscreen and click “Hide Toolbars” in the bottom-right corner of the page.
+:::
+
+:::{.body}
+Services dominate modern economies, but that hasn’t always been the case. Historically, countries tended to shift from agriculture to manufacturing and eventually to services as they developed. But has this pattern of structural transformation held true more recently, specifically for developing countries?
+
+Using World Bank Data from 1960 to 2019, we examine how sector composition and GDP per capita evolved across countries.
+:::
+
+:::{.data-note}
+Our data was compiled from World Bank Data. Variables in the original dataset contained over 250 economic indicators per country, but during the data cleaning process, we filtered those indicators down to GDP per capita, trade as a percentage of GDP, and value added by service, agriculture, and industry sectors as a percentage of GDP. 
+
+To address missing values, we manually coalesced economic sector data from the original file with a second file from Our World in Data and added missing values for trade and GDP from the World Bank data website. Countries that lacked data for all years from 1960 to 2019 for the variables selected were removed to ensure a complete dataset for the visualizations.
+:::
+
+::::{.cr-section layout="sidebar-left"} 
+
+## Structural Transformation Over Time
+
+Global trends in economic structure have shifted drastically over time. Snapshots of countries’ economies in 1960 and 2019 tell very different stories.
+
+In the service sector, the positive association between GDP per capita and the share of services became more extreme from 1960 to 2019, showing that more service-dominated countries are generally wealthier. Additionally, the global disparity in GDP per capita has become much more pronounced since 1960, leading to stark wealth differences between countries with similar economic compositions. @cr-sticky
+
+:::{#cr-sticky}
+
+```{r out.width="100%"}
+# Making plot 1 function to re-call it depending on sector and year
+# Using stickies inside closeread to make graphs appear as they are tagged
+
+make_plot1 <- function(sector_choice, year_select) {
+  
+  # Format data
+  df <- sector_data |>
+    filter(Year == year_select) |>
+    mutate(
+      sector_value = case_when(
+        sector_choice == "Service" ~ Service,
+        sector_choice == "Industry" ~ Industry,
+        sector_choice == "Agriculture" ~ Agriculture
+      ),
+      hover_label = paste0(
+        "<b>", Country.Name, ", ", Year, "</b><br>",
+        "Value Added by Sector: ", round(sector_value, 1), "%<br>",
+        "GDP per Capita: $", scales::comma(round(GDP, 0))
+      )
+    )
+
+  # Construct plotly object, similar to shiny dashboard without reactive data
+  plot_ly(
+    data = df,
+    x = ~sector_value, 
+    y = ~GDP,
+    key = ~Country.Name,
+    text = ~Country.Name,
+    color = ~Region,
+    type = "scatter",
+    mode = "markers",
+    customdata = ~Year,
+    opacity = 1,
+    marker = list(
+      line = list(color = "white", width = 1.5),
+      size = 14
+    ),
+    hovertext = ~hover_label,
+    hoverinfo = "text"
+  ) %>% 
+    layout(
+      hovermode = "closest",
+      yaxis = list(
+        type = "log", 
+        title = "GDP per Capita (Current USD)",
+        tickprefix = "$", 
+        range = c(0, 5)
+      ),
+      xaxis = list(
+        title = paste(sector_choice, "Sector Value Added (% of GDP)"),
+        ticksuffix = "%",
+        range = c(0, 80)
+      )) %>% 
+    plot_theme(
+      paste(sector_choice,
+        "Share Changes As GDP Increases:", year_select
+      )
+    ) %>% 
+    config(doubleClick = FALSE)
+}
+
+# Call function
+make_plot1("Service", 1960)
+make_plot1("Service", 2019)
+```
+
+:::
+::::
+::::{.cr-section layout="sidebar-left"} 
+
+Agriculture's relationship with GDP per capita, although negative in contrast to services, also strengthened significantly. In 2019, a country’s agriculture sector’s relative size was a strong indicator of their relative wealth, especially when it was below 20% of GDP. Agriculture-dominated countries, of greater than 20% of GDP, are generally within a similarly low range of GDP per capita. @cr-sticky2
+
+:::{#cr-sticky2}
+
+```{r out.width="100%"}
+# Call function
+make_plot1("Agriculture", 1960)
+make_plot1("Agriculture", 2019)
+```
+    
+:::
+::::
+::::{.cr-section layout="sidebar-left"} 
+
+The industry sector follows a distinctly different pattern of growth. For countries on the extreme ends of GDP per capita, either high or low, their industry sector makes up less of their total GDP. However, countries in the middle range of GDP per capita tend to have the most industry-dominated economies, suggesting that industrialization is a transitional phase as economies between agriculture and services. @cr-sticky3
+
+:::{#cr-sticky3}
+
+```{r out.width="100%"}
+# Call function
+make_plot1("Industry", 1960)
+make_plot1("Industry", 2019)
+```
+    
+:::
+
+Overall, these patterns describe a broad pattern of agrarian societies industrializing and growing their economy before transforming into a service-based, wealthy economy. @cr-sticky4
+
+:::{#cr-sticky4}
+:::
+::::
+
+::::{.cr-section layout="sidebar-left"} 
+
+## Differing Paths of Development
+
+The sector composition global average suggests a clear and consistent pattern. From 1960 to 2019, countries shifted away from agriculture as their economies developed and moved towards services. However, this transition has not been universal. @cr-sticky5
+
+:::{#cr-sticky5}
+
+```{r out.width="100%"}
+df <- global_avg |>
+  select(Year, Agriculture, Industry, Service, Country.Name) |>
+  arrange(Year)
+
+# Make global average stacked area plot
+plot_ly(df, x = ~Year, y = ~Agriculture, 
+  name = "Agriculture",
+  type = "scatter", 
+  mode = "lines", 
+  stackgroup = "one", 
+  groupnorm = "percent",
+  fillcolor = sector_colors["Agriculture"],
+  line = list(color = sector_line_colors["Agriculture"]),
+  hovertemplate = "Agriculture: %{y:.1f}%<extra></extra>"
+) |>
+  add_trace(
+    y = ~Industry,
+    name = "Industry",
+    fillcolor = sector_colors["Industry"],
+    line = list(color = sector_line_colors["Industry"]),
+    hovertemplate = "Industry: %{y:.1f}%<extra></extra>"
+  ) |>
+  add_trace(
+    y = ~Service,
+    name = "Service",
+    fillcolor = sector_colors["Service"],
+    line = list(color = sector_line_colors["Service"]),
+    hovertemplate = "Service: %{y:.1f}%<extra></extra>"
+  ) |>
+  layout(
+    xaxis = list(
+      title = "Year", 
+      tickformat = "d",
+      tickmode = "array",
+      tickvals = c(seq(1960, 2015, by = 5), 2019)
+    ),
+    yaxis = list(
+      title = "Percent of GDP", 
+      ticksuffix = "%",        
+      hoverformat = ".1f"
+    ), 
+    hovermode = "x unified"
+  ) |>
+  plot_theme("Sector Composition Over Time: Global Average")
+```
+    
+:::
+::::
+::::{.cr-section layout="sidebar-left"} 
+
+Some countries, such as Brazil, closely follow the classic path of structural transformation. Throughout this time, Brazil showed a clear decline in agriculture alongside an increase in industry, and then a separate shift towards services, particularly in the mid-1990s. @cr-sticky6
+
+:::{#cr-sticky6}
+
+```{r out.width="100%"}
+# Make stacked area plot function, call based on country
+make_stacked_area <- function(country_name) {
+  df <- sector_data |>
+    filter(Country.Name == country_name) |>
+    select(Year, Agriculture, Industry, Service, Country.Name) |>
+    arrange(Year)
+
+  # Construct plotly object
+  plot_ly(df, x = ~Year, y = ~Agriculture, 
+    name = "Agriculture",
+    type = "scatter", 
+    mode = "lines", 
+    stackgroup = "one", 
+    groupnorm = "percent",
+    fillcolor = sector_colors["Agriculture"],
+    line = list(color = sector_line_colors["Agriculture"]),
+    hovertemplate = "Agriculture: %{y:.1f}%<extra></extra>"
+  ) |>
+    add_trace(
+      y = ~Industry,
+      name = "Industry",
+      fillcolor = sector_colors["Industry"],
+      line = list(color = sector_line_colors["Industry"]),
+      hovertemplate = "Industry: %{y:.1f}%<extra></extra>"
+    ) |>
+    add_trace(
+      y = ~Service,
+      name = "Service",
+      fillcolor = sector_colors["Service"],
+      line = list(color = sector_line_colors["Service"]),
+      hovertemplate = "Service: %{y:.1f}%<extra></extra>"
+    ) |>
+    layout(
+      xaxis = list(
+        title = "Year", 
+        tickformat = "d",
+        tickmode = "array",
+        tickvals = c(seq(1960, 2015, by = 5), 2019)
+      ),
+      yaxis = list(
+        title = "Percent of GDP", 
+        ticksuffix = "%",
+        hoverformat = ".1f"
+      ), 
+      hovermode = "x unified"
+    ) |>
+    plot_theme(paste("Sector Composition Over Time:", unique(df$Country.Name)))
+}
+
+make_stacked_area("Brazil")
+```
+    
+:::
+::::
+::::{.cr-section layout="sidebar-left"} 
+
+Others, such as the Republic of the Congo, diverge from the shift towards services that is representative of the global average. Despite increases in GDP per capita over the period, the share of services decreased considerably, from roughly 60% in 1960 to around 40% in 2019. Instead, industry quickly gained ground as it contributed to more GDP. @cr-sticky7
+
+:::{#cr-sticky7}
+
+```{r out.width="100%"}
+make_stacked_area("Congo, Rep.")
+```
+    
+:::
+::::
+::::{.cr-section layout="sidebar-left"} 
+
+Niger, which has consistently lagged behind in terms of GDP per capita, presents a different story of an incomplete structural transformation. While the country significantly reduced their dependence on agriculture throughout the period, agriculture still accounted for roughly 40% of GDP in 2019. This is far above the global average of close to 3%. @cr-sticky8
+
+:::{#cr-sticky8}
+
+```{r out.width="100%"}
+make_stacked_area("Niger")
+```
+    
+:::
+
+These examples propose that while the path from agriculture to industry to services is a common pattern, it is neither uniform nor necessary for development. Different countries follow different paths shaped by a multitude of complex factors. @cr-sticky4
+
+::::
+
+::::{.cr-section layout="sidebar-left"} 
+
+## Income Level Differences In Development
+
+This variation raises the question of what explains the differences in paths of structural transformation across countries. One factor that plays a critical role is income level. Regionally, there are stark differences in economic composition between high income and low income countries despite shared geographic conditions.
+
+For example, within East Asia and the Pacific, high income countries are far more dominated by the service sector. In 1987, services accounted for 62.9% of GDP in high income countries in the East Asia Pacific, while it made up only 43.7% of GDP in low income countries—nearly a 20% difference. On the other hand, agriculture made up a nearly negligible portion of high income economies, at 0.6%, but 12.2% of low income countries’ GDP. @cr-sticky9
+
+:::{#cr-sticky9}
+
+```{r}
+# Make treeplot function, call based on year and income group
+make_plot2 <- function(year_select, income_select) {
+  df <- sector_data %>%
+    # Just East Asia & Pacific region
+    filter(
+      Region == "East Asia & Pacific",
+      Year == year_select
+    )
+  
+  # Filter by income select
+  if (income_select != "All") {
+    df <- df %>%
+      filter(incomeclass == income_select)
+  }
+  
+  # Format data and calculate weighted means
+  df <- df %>%
+    group_by(Region, Year) %>%
+    summarize(
+      regionalgdp = sum(GDP, na.rm = TRUE),
+      Service = weighted.mean(Service, w = GDP, na.rm = TRUE),
+      Industry = weighted.mean(Industry, w = GDP, na.rm = TRUE),
+      Agriculture = weighted.mean(Agriculture, w = GDP, na.rm = TRUE),
+      Count = n(),
+      .groups = "drop"
+    ) %>%
+    pivot_longer(
+      cols = c(Service, Industry, Agriculture),
+      names_to = "sector",
+      values_to = "sectorpercent"
+    )
+  
+  df$fill_color <- sector_line_colors[df$sector]
+  
+  # Construct plotly treemap
+  plot_ly(
+    data = df,
+    type = "treemap",
+    labels = ~sector,
+    text = ~Count,
+    textinfo = "label+value",
+    texttemplate = "<b>%{label}</b>\n%{value:.1f}%",
+    parents = if (income_select == "All") {
+      "All Income Levels"
+    } else {
+      income_select
+    },
+    values = ~sectorpercent,
+    branchvalues = "total",
+    marker = list(colors = df$fill_color),
+    hovertemplate = "<b>%{label}</b>\nValue Added (% of GDP): %{value:.1f}%\nNumber of Countries: %{text}<extra></extra>"
+  ) %>%
+    plot_theme(
+      paste0(
+        "Sector Composition by Income Level: East Asia & Pacific<br>",
+        income_select, ", ", year_select
+      )
+    )
+}
+
+make_plot2(1987, "Low Income")
+make_plot2(1987, "High Income")
+```
+
+:::
+::::
+::::{.cr-section layout="sidebar-left"} 
+
+In 2019, this divergence persisted. Although agriculture declined in low income countries in East Asia and the Pacific, high income countries remained heavily dominated by services. Notably, the most significant structural changes occurred within low income countries, as they shifted away from agriculture into services, whereas high income countries experienced a more subtle change. The source of this shift also differed across income levels. In high income countries, the more modest increase in services was accompanied by a decrease in industry, whereas in low income countries, the growth in services was driven by a decrease in agriculture, demonstrating an earlier stage of transformation. @cr-sticky10
+
+:::{#cr-sticky10}
+
+```{r}
+make_plot2(2019, "Low Income")
+make_plot2(2019, "High Income")
+```
+
+:::
+
+Thus, differences in structural transformation cannot be explained by regional differences alone. Instead, income level appears to play a more critical role in the evolution of a country’s economic structure. @cr-sticky4
+
+::::
+
+::::{.cr-section layout="sidebar-left"} 
+
+## Does Trade Play a Role?
+
+In addition to income level, trade openness may be considered a factor to explain differences in structural transformation. Trade openness, defined as the sum of a country’s imports and exports as a percentage of its GDP, is often associated with greater globalization and higher levels of development. This would suggest that countries with more advanced structural transformation have higher levels of trade openness. However, the relationship appears far less consistent.
+
+
+Returning to Brazil, the Republic of the Congo, and Niger, one can see little correlation between trade openness, sector composition, and even GDP per capita. Brazil, despite having the highest GDP per capita of $8,897, consistently showed the lowest levels of trade openness. This occurs even as the country followed the typical modernization path from agriculture to industry to service. @cr-sticky11
+
+:::{#cr-sticky11}
+
+```{r}
+# Make trade line plot function, calling by country name
+make_tradeLine <- function(country_name) {
+  df <- sector_data |>
+    filter(Country.Name == country_name) |>
+    select(Year, Agriculture, Industry, Service, Trade, Country.Name) |>
+    arrange(Year)
+
+  trade_color <- "rgba(80, 80, 80, 1)"  # darker for emphasis
+
+  # Construct plotly object
+  plot_ly(df, x = ~Year, y = ~Service,
+    name = "Service",
+    type = "scatter",
+    mode = "lines",
+    line = list(color = sector_line_colors["Service"], width = 2, dash = "dash"),
+    hovertemplate = "Service: %{y:.1f}%<extra></extra>"
+  ) |> 
+    add_lines(
+      y = ~Industry,
+      name = "Industry",
+      line = list(color = sector_line_colors["Industry"], width = 2, dash = "dash"),
+      hovertemplate = "Industry: %{y:.1f}%<extra></extra>"
+    ) |> 
+    add_lines(
+      y = ~Agriculture,
+      name = "Agriculture",
+      line = list(color = sector_line_colors["Agriculture"], width = 2, dash = "dash"),
+      hovertemplate = "Agriculture: %{y:.1f}%<extra></extra>"
+    ) |> 
+    add_lines(
+      y = ~Trade,
+      name = "Trade Openness",
+      line = list(color = trade_color, width = 4, dash = "solid"),
+      hovertemplate = "Trade Openness: %{y:.1f}%<extra></extra>"
+    ) |> 
+    layout(
+      xaxis = list(
+        title = "Year",
+        tickformat = "d",
+        tickmode = "array",
+        tickvals = c(seq(1960, 2015, by = 5), 2019)
+      ),
+      yaxis = list(
+        title = "Percent of GDP",
+        ticksuffix = "%"
+      ),
+      hovermode = "x unified"
+    ) |> 
+    plot_theme(paste("Trade Openness and Sector Shares:", unique(df$Country.Name)))
+}
+
+make_tradeLine("Brazil")
+```
+
+:::
+::::
+::::{.cr-section layout="sidebar-left"} 
+
+In contrast, the Republic of the Congo, exhibits by far the highest levels of trade openness, frequently exceeding 100% of the country’s GDP. Yet, the country did not transition heavily towards services, and instead became more concentrated in industry. @cr-sticky12
+
+:::{#cr-sticky12}
+
+```{r}
+make_tradeLine("Congo, Rep.")
+```
+
+:::
+::::
+::::{.cr-section layout="sidebar-left"} 
+
+Finally, Niger, which experienced a decline in agriculture while still relying heavily on the sector in 2019, saw moderate and fluctuating levels of trade openness, peaking in the late 1970s. @cr-sticky13
+
+:::{#cr-sticky13}
+
+```{r}
+make_tradeLine("Niger")
+```
+
+:::
+
+Across these three countries, trade openness does not consistently correspond to higher levels of development or explain variances in economic structure. @cr-sticky4
+
+::::
+
+:::{.body}
+
+Overall, while the global pattern suggests a common path of structural transformation, from farms to factories to services, many countries break this model and follow their own route. Income level helps to determine where countries fall in this process, but no one factor can explain the complex relationship between economic composition and wealth. Indeed, there are not one, but many, paths to economic development.
+
+Explore how different countries have charted their own paths through our interactive dashboard [here](https://eviemcmahan.shinyapps.io/Interactive-dashboard/).
+
+:::
